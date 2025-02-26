@@ -1,0 +1,5 @@
+requests
+yfinance
+praw
+pandas
+neo4j

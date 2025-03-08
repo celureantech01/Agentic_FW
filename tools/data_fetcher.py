@@ -224,7 +224,9 @@ class DataFetcher:
                 time_series = price_data["Time Series (Daily)"]
 
                 # ✅ Convert the time series into a Pandas DataFrame
-                price_data_df = pd.DataFrame.from_dict(time_series, orient="index", dtype=float)
+                # price_data_df = pd.DataFrame.from_dict(time_series, orient="index", dtype=float)
+                # ============reactivate and remove following line============================
+                price_data_df = pd.DataFrame.from_dict(time_series, orient="index").astype(float)
 
                 # ✅ Rename columns to standard names
                 price_data_df.rename(columns={

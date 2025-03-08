@@ -36,7 +36,7 @@ async def get_final_recommendation(stock_data, recommendation, market_knowledge)
         price_data = price_data[-5:]
 
     financial_news = stock_data.get("financial_news", [])
-    news_formatted = "\n".join([
+    news_formatted = "\n".join([  # Format the news data
         f"- {item.get('title', 'No title')} ({item.get('date', '')})"
         if isinstance(item, dict) else f"- {item[0]} ({item[1]})"
         for item in financial_news[:3]
@@ -71,13 +71,14 @@ async def get_final_recommendation(stock_data, recommendation, market_knowledge)
     🔍 Generated Recommendation:
     {recommendation}
 
-    Given the above data, provide a final recommendation on whether to Buy, Sell, or Hold {stock_data.get("symbol", "this stock")}.
-    Include reasoning based on stock performance, technical indicators, and market sentiment.
+    Just answer user query based on data provided to you
     """
+    # Given the above data, provide a final recommendation on whether to Buy, Sell, or Hold {stock_data.get("symbol", "this stock")}.
+    # Include reasoning based on stock performance, technical indicators, and market sentiment.
 
     response = openai.chat.completions.create(
         model="gpt-4",
-        messages=[
+        messages=[  # Creating the chat for GPT-4 model
             {"role": "system", "content": "You are an expert stock advisor."},
             {"role": "user", "content": prompt}
         ],
@@ -150,14 +151,33 @@ async def main(user_input):
     if not market_knowledge:  # Ensure it's a list
         market_knowledge = []
 
+    # Debug output for checking the backend processed knowledge
     print("\n📚 Knowledge Retrieved (Raw Data):")
     for record in market_knowledge:
         print(record)
 
+    print("\n📚 Debug: Market Knowledge Before Processing (Raw List):", repr(market_knowledge))
+
+    print("\n🛠️ Debug: Structure of Market Knowledge (Before Cleaning):")
+    for i, record in enumerate(market_knowledge):
+        print(f"{i}: {repr(record)} (Type: {type(record)})")
+
+    # Clean market knowledge data just before passing to the UI
     if isinstance(market_knowledge, list) and market_knowledge:
-        market_knowledge = [record.get("description", "No description available") for record in market_knowledge]
+        market_knowledge = [record.strip() for record in market_knowledge if record.strip()]
+
+        # market_knowledge = [
+        #     str(record[1]).strip()  # Extract second value since first is None
+        #     for record in market_knowledge
+        #     if len(record) > 1 and record[1] and str(
+        #         record[1]).strip().lower() != "no additional market knowledge available."
+        # ]
+
     else:
         market_knowledge = ["No additional market knowledge available."]
+
+    # Debug output for checking the processed knowledge
+    print("\n📚 Knowledge Processed for UI:", market_knowledge)
 
     print("\n🤖 Step 4: Generating final recommendation using GPT-4...")
     final_recommendation = await get_final_recommendation(asset_data, recommendation, market_knowledge)

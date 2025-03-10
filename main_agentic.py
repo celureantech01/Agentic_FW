@@ -5,8 +5,11 @@ import os
 import pandas as pd
 from agents.stock_agent import StockAgent
 from agents.recommendation_agent import RecommendationAgent
-from agents.knowledge_worker_agent import KnowledgeWorkerAgent
 from tools.data_fetcher import DataFetcher
+from langchain.prompts import PromptTemplate
+from neo4j import GraphDatabase
+from sklearn.metrics.pairwise import cosine_similarity
+from tools.neo4j_connector import Neo4jConnector  # Import your Neo4jConnector
 
 # Ensure OpenAI API key is set via environment variables
 openai.api_key = "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"
@@ -27,13 +30,16 @@ def extract_symbols_and_keywords(user_input):
 
     return symbol, company, keywords
 
-async def get_final_recommendation(stock_data, recommendation, market_knowledge):
+
+async def get_final_response(stock_data, user_query, market_knowledge):
     """
-    Generate a final recommendation using GPT-4.
+    Generate a response using GPT-4, dynamically adjusting to the type of user query.
     """
-    price_data = stock_data.get("price_data", [])
-    if isinstance(price_data, list) and len(price_data) > 5:
-        price_data = price_data[-5:]
+    # Prepare stock data dynamically
+    technical_analysis = stock_data.get("technical_analysis", {})
+    recent_prices = stock_data.get("price_data", [])
+    if isinstance(recent_prices, list) and len(recent_prices) > 5:
+        price_data = recent_prices[-5:]
 
     financial_news = stock_data.get("financial_news", [])
     news_formatted = "\n".join([  # Format the news data
@@ -42,51 +48,62 @@ async def get_final_recommendation(stock_data, recommendation, market_knowledge)
         for item in financial_news[:3]
     ]) if financial_news else "No financial news available."
 
-    technical_analysis = stock_data.get("technical_analysis", [])
-    if isinstance(technical_analysis, list) and len(technical_analysis) > 3:
-        technical_analysis = technical_analysis[:3]
-
     market_knowledge_str = "\n".join(market_knowledge) if market_knowledge else "No additional market knowledge available."
-    if len(market_knowledge_str) > 1000:
-        market_knowledge_str = market_knowledge_str[:1000] + "..."
 
-    prompt = f"""
-    Stock Recommendation Summary:
+    # 🔥 Use LangChain's Prompt Template
+    template = """You are a stock market expert.
+    Answer the user query strictly based on the provided data.
+    If the question is about specific technical indicators, return only those.
+    If the question is about a recommendation, return a well-reasoned Buy/Sell/Hold decision.
 
-    Symbol: {stock_data.get("symbol", "Unknown")}
-    Company Name: {stock_data.get("company", "Unknown")}
+    User Query: {question}
 
-    📊 Price Data (Last 5 entries):
-    {price_data}
+    --- Stock Data ---
+    Stock Symbol: {symbol}
+    Company Name: {company}
 
-    📰 Financial News (Top 3 headlines):
-    {news_formatted}
+    📊 Price Data (Last 5 Days):
+    {recent_prices}
 
-    📈 Technical Analysis (Key Indicators):
+    📈 Technical Indicators:
     {technical_analysis}
 
+    📰 News Headlines:
+    {news_formatted}
+
     🧠 Market Knowledge:
-    {market_knowledge_str}
+    {market_knowledge}
 
-    🔍 Generated Recommendation:
-    {recommendation}
-
-    Just answer user query based on data provided to you
+    Based on the user query, generate a direct and precise answer.
     """
-    # Given the above data, provide a final recommendation on whether to Buy, Sell, or Hold {stock_data.get("symbol", "this stock")}.
-    # Include reasoning based on stock performance, technical indicators, and market sentiment.
 
+    # 🔥 Setup Memory
+    prompt = PromptTemplate(
+        input_variables=["question", "symbol", "company", "recent_prices", "technical_analysis", "news_formatted",
+                         "market_knowledge"], template=template)
+
+    # 🔥 Generate GPT Response with Dynamic Context
     response = openai.chat.completions.create(
         model="gpt-4",
-        messages=[  # Creating the chat for GPT-4 model
-            {"role": "system", "content": "You are an expert stock advisor."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=250,
+        messages=[{
+            "role": "system", "content": "You are an expert financial analyst."
+        }, {
+            "role": "user", "content": prompt.format(
+                question=user_query,
+                symbol=stock_data.get("symbol", "Unknown"),
+                company=stock_data.get("company", "Unknown"),
+                recent_prices=recent_prices,
+                technical_analysis=technical_analysis,
+                news_formatted=news_formatted,
+                market_knowledge=market_knowledge_str
+            )
+        }],
+        max_tokens=300,
         temperature=0.5
     )
 
     return response.choices[0].message.content.strip()
+
 
 async def main(user_input):
     """
@@ -144,52 +161,37 @@ async def main(user_input):
         recommendation = "⚠️ No valid recommendation generated."
         print(f"\n⚠️ No valid recommendation generated for {symbol}.")
 
+    # 🔥 Step 3: Directly Querying Neo4j for Market Knowledge
     print("\n📚 Step 3: Retrieving relevant market knowledge from Neo4j...")
-    knowledge_worker = KnowledgeWorkerAgent()
-    user_query = ' '.join(keywords + ['market factors', 'recommendation', 'price projection'])
-    market_knowledge = knowledge_worker.retrieve_knowledge(user_query)
-    if not market_knowledge:  # Ensure it's a list
-        market_knowledge = []
 
-    # Debug output for checking the backend processed knowledge
+    # Initialize Neo4jConnector for direct querying
+    neo4j_connector = Neo4jConnector()
+
+    # Assuming the query to be based on user's input
+    market_knowledge = neo4j_connector.retrieve_knowledge(user_input)
+
     print("\n📚 Knowledge Retrieved (Raw Data):")
-    for record in market_knowledge:
-        print(record)
-
-    print("\n📚 Debug: Market Knowledge Before Processing (Raw List):", repr(market_knowledge))
-
-    print("\n🛠️ Debug: Structure of Market Knowledge (Before Cleaning):")
-    for i, record in enumerate(market_knowledge):
-        print(f"{i}: {repr(record)} (Type: {type(record)})")
+    print(market_knowledge)
 
     # Clean market knowledge data just before passing to the UI
-    if isinstance(market_knowledge, list) and market_knowledge:
-        market_knowledge = [record.strip() for record in market_knowledge if record.strip()]
+    # Assuming market_knowledge is a list of dictionaries with 'name' and 'description'
+    market_knowledge_str = "\n".join([f"Name: {item['name']}, Description: {item['description']}" for item in
+                                      market_knowledge]) if market_knowledge else "No additional market knowledge available."
 
-        # market_knowledge = [
-        #     str(record[1]).strip()  # Extract second value since first is None
-        #     for record in market_knowledge
-        #     if len(record) > 1 and record[1] and str(
-        #         record[1]).strip().lower() != "no additional market knowledge available."
-        # ]
-
-    else:
-        market_knowledge = ["No additional market knowledge available."]
-
-    # Debug output for checking the processed knowledge
-    print("\n📚 Knowledge Processed for UI:", market_knowledge)
+    print("\n📚 Knowledge Processed for UI:", market_knowledge_str)
 
     print("\n🤖 Step 4: Generating final recommendation using GPT-4...")
-    final_recommendation = await get_final_recommendation(asset_data, recommendation, market_knowledge)
+    final_recommendation_response = await get_final_response(asset_data, recommendation, market_knowledge_str)
 
-    print(f"\n📢 GPT-4 Final Recommendation: {final_recommendation}")
+    print(f"\n📢 GPT-4 Final Recommendation: {final_recommendation_response}")
 
     return {
         "stock_data": asset_data,
-        "market_knowledge": market_knowledge,
+        "market_knowledge": market_knowledge_str,
         "recommendation_agent_output": recommendation,
-        "final_recommendation": final_recommendation
+        "final_recommendation": final_recommendation_response
     }
+
 
 if __name__ == "__main__":
     user_query = input("Enter your query (e.g., 'Recommendation for AAPL stock based on technical indicators'): ")

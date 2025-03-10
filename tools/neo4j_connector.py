@@ -31,26 +31,29 @@ class Neo4jConnector:
             result = session.run(query, params)
             return result.data()
 
-def retrieve_knowledge(user_query):
-    """Retrieves knowledge from Neo4j based on extracted keywords."""
-    connector = Neo4jConnector()
-    if not connector.driver:
-        return ["No relevant knowledge found (Neo4j connection issue)."]
+    def retrieve_knowledge(self, user_query):
+        """Retrieves knowledge from Neo4j based on extracted keywords."""
+        if not self.driver:
+            return ["No relevant knowledge found (Neo4j connection issue)."]
 
-    # Extract keywords (splitting user query into words)
-    keywords = user_query.lower().split()
+        # Extract keywords (splitting user query into words)
+        keywords = user_query.lower().split()
 
-    # Cypher query to find relevant knowledge
-    cypher_query = """
-    MATCH (n)
-    WHERE ANY(keyword IN $keywords WHERE 
-        toLower(COALESCE(n.name, '')) CONTAINS keyword OR 
-        toLower(COALESCE(n.description, '')) CONTAINS keyword)
-    RETURN COALESCE(n.name, 'Unknown') AS name, COALESCE(n.description, 'No description available') AS description
-    LIMIT 5
-    """
+        # Cypher query to find relevant knowledge
+        cypher_query = """
+        MATCH (n)
+        WHERE ANY(keyword IN $keywords WHERE 
+            toLower(COALESCE(n.name, '')) CONTAINS keyword OR 
+            toLower(COALESCE(n.description, '')) CONTAINS keyword)
+        RETURN COALESCE(n.name, 'Unknown') AS name, COALESCE(n.description, 'No description available') AS description
+        LIMIT 5
+        """
 
-    result = connector.run_query(cypher_query, {"keywords": keywords})
-    connector.close()
+        try:
+            # Run query with parameters passed correctly
+            result = self.run_query(cypher_query, {"keywords": keywords})
+        except Exception as e:
+            print(f"Error during query execution: {e}")
+            result = []
 
-    return result if result else ["No relevant knowledge found."]
+        return result if result else ["No relevant knowledge found."]

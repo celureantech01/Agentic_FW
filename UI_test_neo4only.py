@@ -50,7 +50,7 @@ if stock_symbol:
 
             for i in range(len(price_data["Date"])):
                 insert_stock_price(
-                    stock_symbol,
+                    stock_symbol, # Make sure this is just "TSLA"
                     price_data["Date"][i],
                     price_data["Open"][i],
                     price_data["High"][i],
@@ -158,8 +158,8 @@ DB_FILE = "stock_data.db"
 
 def fetch_stock_data(stock_symbol, column_name="high"):
     conn = sqlite3.connect(DB_FILE)
-    query = f"SELECT date, {column_name} FROM stock_analysis WHERE stock_symbol = ? ORDER BY date"
-    df = pd.read_sql_query(query, conn, params=(stock_symbol,))
+    query = f"SELECT date, {column_name} FROM stock_analysis WHERE stock_symbol LIKE ? ORDER BY date"
+    df = pd.read_sql_query(query, conn, params=(f"%{stock_symbol}%",))  # Use LIKE for flexibility
     conn.close()
     return df
 
